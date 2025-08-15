@@ -17,7 +17,6 @@
 
 #include "capture_cvi.h"
 
-#if defined __linux__
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,10 +38,14 @@
 #include <pthread.h>
 #include <sys/prctl.h>
 
+namespace cv {
+
 // 0 = unknown
 // 1 = milkv-duo
 // 2 = milkv-duo256m
 // 3 = licheerv-nano
+// 4 = milkv-duos
+// 5 = licheerv-nano final version
 static int get_device_model()
 {
     static int device_model = -1;
@@ -59,12 +62,12 @@ static int get_device_model()
         fgets(buf, 1024, fp);
         fclose(fp);
 
-        if (strncmp(buf, "Cvitek. CV180X ASIC. C906.", 36) == 0)
+        if (strncmp(buf, "Cvitek. CV180X ASIC. C906.", 36) == 0 || strncmp(buf, "Milk-V Duo", 10) == 0)
         {
             // milkv duo
             device_model = 1;
         }
-        if (strncmp(buf, "Cvitek. CV181X ASIC. C906.", 36) == 0)
+        if (strncmp(buf, "Cvitek. CV181X ASIC. C906.", 36) == 0 || strncmp(buf, "Milk-V Duo256M", 14) == 0)
         {
             // milkv duo 256
             device_model = 2;
@@ -72,8 +75,25 @@ static int get_device_model()
         if (strncmp(buf, "LicheeRv Nano", 13) == 0)
         {
             // licheerv nano
-            device_model = 3;
+            if (access("/boot/alpha", R_OK) == 0)
+            {
+                device_model = 3;
+            }
+            else
+            {
+                device_model = 5;
+            }
         }
+        if (strncmp(buf, "Milk-V DuoS", 11) == 0)
+        {
+            // milkv duo s
+            device_model = 4;
+        }
+    }
+
+    if (device_model > 0)
+    {
+        fprintf(stderr, "opencv-mobile MIPI CSI camera with cvi\n");
     }
 
     return device_model;
@@ -81,25 +101,7 @@ static int get_device_model()
 
 static bool is_device_whitelisted()
 {
-    const int device_model = get_device_model();
-
-    if (device_model == 1)
-    {
-        // milkv duo
-        return true;
-    }
-    if (device_model == 2)
-    {
-        // milkv duo 256
-        return true;
-    }
-    if (device_model == 3)
-    {
-        // licheerv nano
-        return true;
-    }
-
-    return false;
+    return get_device_model() > 0;
 }
 
 extern "C"
@@ -245,7 +247,6 @@ static int load_sys_library()
     bool whitelisted = is_device_whitelisted();
     if (!whitelisted)
     {
-        fprintf(stderr, "this device is not whitelisted for capture cvi\n");
         return -1;
     }
 
@@ -260,6 +261,10 @@ static int load_sys_library()
     if (!libsys)
     {
         libsys = dlopen("/mnt/system/lib/libsys.so", RTLD_LOCAL | RTLD_NOW);
+    }
+    if (!libsys)
+    {
+        libsys = dlopen("/mnt/system/usr/lib/libsys.so", RTLD_LOCAL | RTLD_NOW);
     }
     if (!libsys)
     {
@@ -962,7 +967,6 @@ static int load_vpu_library()
     bool whitelisted = is_device_whitelisted();
     if (!whitelisted)
     {
-        fprintf(stderr, "this device is not whitelisted for capture cvi\n");
         return -1;
     }
 
@@ -970,6 +974,10 @@ static int load_vpu_library()
     if (!libvpu_sys)
     {
         libvpu_sys = dlopen("/mnt/system/lib/libsys.so", RTLD_GLOBAL | RTLD_LAZY);
+    }
+    if (!libvpu_sys)
+    {
+        libvpu_sys = dlopen("/mnt/system/usr/lib/libsys.so", RTLD_GLOBAL | RTLD_LAZY);
     }
     if (!libvpu_sys)
     {
@@ -984,6 +992,10 @@ static int load_vpu_library()
     }
     if (!libvpu_awb)
     {
+        libvpu_awb = dlopen("/mnt/system/usr/lib/libawb.so", RTLD_GLOBAL | RTLD_LAZY);
+    }
+    if (!libvpu_awb)
+    {
         fprintf(stderr, "%s\n", dlerror());
         goto OUT;
     }
@@ -992,6 +1004,10 @@ static int load_vpu_library()
     if (!libvpu_ae)
     {
         libvpu_ae = dlopen("/mnt/system/lib/libae.so", RTLD_GLOBAL | RTLD_LAZY);
+    }
+    if (!libvpu_ae)
+    {
+        libvpu_ae = dlopen("/mnt/system/usr/lib/libae.so", RTLD_GLOBAL | RTLD_LAZY);
     }
     if (!libvpu_ae)
     {
@@ -1006,6 +1022,10 @@ static int load_vpu_library()
     }
     if (!libvpu_isp_algo)
     {
+        libvpu_isp_algo = dlopen("/mnt/system/usr/lib/libisp_algo.so", RTLD_GLOBAL | RTLD_LAZY);
+    }
+    if (!libvpu_isp_algo)
+    {
         fprintf(stderr, "%s\n", dlerror());
         goto OUT;
     }
@@ -1014,6 +1034,10 @@ static int load_vpu_library()
     if (!libvpu_isp)
     {
         libvpu_isp = dlopen("/mnt/system/lib/libisp.so", RTLD_GLOBAL | RTLD_LAZY);
+    }
+    if (!libvpu_isp)
+    {
+        libvpu_isp = dlopen("/mnt/system/usr/lib/libisp.so", RTLD_GLOBAL | RTLD_LAZY);
     }
     if (!libvpu_isp)
     {
@@ -1028,6 +1052,10 @@ static int load_vpu_library()
     }
     if (!libvpu_cvi_bin_isp)
     {
+        libvpu_cvi_bin_isp = dlopen("/mnt/system/usr/lib/libcvi_bin_isp.so", RTLD_GLOBAL | RTLD_LAZY);
+    }
+    if (!libvpu_cvi_bin_isp)
+    {
         fprintf(stderr, "%s\n", dlerror());
         goto OUT;
     }
@@ -1039,6 +1067,10 @@ static int load_vpu_library()
     }
     if (!libvpu_cvi_bin)
     {
+        libvpu_cvi_bin = dlopen("/mnt/system/usr/lib/libcvi_bin.so", RTLD_GLOBAL | RTLD_LAZY);
+    }
+    if (!libvpu_cvi_bin)
+    {
         fprintf(stderr, "%s\n", dlerror());
         goto OUT;
     }
@@ -1047,6 +1079,10 @@ static int load_vpu_library()
     if (!libvpu)
     {
         libvpu = dlopen("/mnt/system/lib/libvpu.so", RTLD_LOCAL | RTLD_NOW);
+    }
+    if (!libvpu)
+    {
+        libvpu = dlopen("/mnt/system/usr/lib/libvpu.so", RTLD_LOCAL | RTLD_NOW);
     }
     if (!libvpu)
     {
@@ -1814,7 +1850,6 @@ static int load_sns_obj_library()
     bool whitelisted = is_device_whitelisted();
     if (!whitelisted)
     {
-        fprintf(stderr, "this device is not whitelisted for capture cvi\n");
         return -1;
     }
 
@@ -1824,6 +1859,10 @@ static int load_sns_obj_library()
     if (!libsns_obj_sys)
     {
         libsns_obj_sys = dlopen("/mnt/system/lib/libsys.so", RTLD_GLOBAL | RTLD_LAZY);
+    }
+    if (!libsns_obj_sys)
+    {
+        libsns_obj_sys = dlopen("/mnt/system/usr/lib/libsys.so", RTLD_GLOBAL | RTLD_LAZY);
     }
     if (!libsns_obj_sys)
     {
@@ -1838,6 +1877,10 @@ static int load_sns_obj_library()
     }
     if (!libsns_obj_ae)
     {
+        libsns_obj_ae = dlopen("/mnt/system/usr/lib/libae.so", RTLD_GLOBAL | RTLD_LAZY);
+    }
+    if (!libsns_obj_ae)
+    {
         fprintf(stderr, "%s\n", dlerror());
         goto OUT;
     }
@@ -1846,6 +1889,10 @@ static int load_sns_obj_library()
     if (!libsns_obj_awb)
     {
         libsns_obj_awb = dlopen("/mnt/system/lib/libawb.so", RTLD_GLOBAL | RTLD_LAZY);
+    }
+    if (!libsns_obj_awb)
+    {
+        libsns_obj_awb = dlopen("/mnt/system/usr/lib/libawb.so", RTLD_GLOBAL | RTLD_LAZY);
     }
     if (!libsns_obj_awb)
     {
@@ -1860,17 +1907,25 @@ static int load_sns_obj_library()
     }
     if (!libsns_obj_isp)
     {
+        libsns_obj_isp = dlopen("/mnt/system/usr/lib/libisp.so", RTLD_GLOBAL | RTLD_LAZY);
+    }
+    if (!libsns_obj_isp)
+    {
         fprintf(stderr, "%s\n", dlerror());
         goto OUT;
     }
 
-    if (device_model == 1 || device_model == 2)
+    if (device_model == 1 || device_model == 2 || device_model == 4)
     {
-        // milkv duo or milkv duo 256
+        // milkv duo or milkv duo 256 or milkv duos
         libsns_obj = dlopen("libsns_gc2083.so", RTLD_LOCAL | RTLD_NOW);
         if (!libsns_obj)
         {
             libsns_obj = dlopen("/mnt/system/lib/libsns_gc2083.so", RTLD_LOCAL | RTLD_NOW);
+        }
+        if (!libsns_obj)
+        {
+            libsns_obj = dlopen("/mnt/system/usr/lib/libsns_gc2083.so", RTLD_LOCAL | RTLD_NOW);
         }
         if (!libsns_obj)
         {
@@ -1887,6 +1942,10 @@ static int load_sns_obj_library()
         if (!libsns_obj)
         {
             libsns_obj = dlopen("/mnt/system/lib/libsns_gc4653.so", RTLD_LOCAL | RTLD_NOW);
+        }
+        if (!libsns_obj)
+        {
+            libsns_obj = dlopen("/mnt/system/usr/lib/libsns_gc4653.so", RTLD_LOCAL | RTLD_NOW);
         }
         if (!libsns_obj)
         {
@@ -2186,7 +2245,6 @@ static int load_ae_library()
     bool whitelisted = is_device_whitelisted();
     if (!whitelisted)
     {
-        fprintf(stderr, "this device is not whitelisted for capture cvi\n");
         return -1;
     }
 
@@ -2194,6 +2252,10 @@ static int load_ae_library()
     if (!libae)
     {
         libae = dlopen("/mnt/system/lib/libae.so", RTLD_LOCAL | RTLD_NOW);
+    }
+    if (!libae)
+    {
+        libae = dlopen("/mnt/system/usr/lib/libae.so", RTLD_LOCAL | RTLD_NOW);
     }
     if (!libae)
     {
@@ -2253,7 +2315,6 @@ static int load_awb_library()
     bool whitelisted = is_device_whitelisted();
     if (!whitelisted)
     {
-        fprintf(stderr, "this device is not whitelisted for capture cvi\n");
         return -1;
     }
 
@@ -2261,6 +2322,10 @@ static int load_awb_library()
     if (!libawb)
     {
         libawb = dlopen("/mnt/system/lib/libawb.so", RTLD_LOCAL | RTLD_NOW);
+    }
+    if (!libawb)
+    {
+        libawb = dlopen("/mnt/system/usr/lib/libawb.so", RTLD_LOCAL | RTLD_NOW);
     }
     if (!libawb)
     {
@@ -2333,7 +2398,6 @@ static int load_isp_library()
     bool whitelisted = is_device_whitelisted();
     if (!whitelisted)
     {
-        fprintf(stderr, "this device is not whitelisted for capture cvi\n");
         return -1;
     }
 
@@ -2341,6 +2405,10 @@ static int load_isp_library()
     if (!libisp)
     {
         libisp = dlopen("/mnt/system/lib/libisp.so", RTLD_LOCAL | RTLD_NOW);
+    }
+    if (!libisp)
+    {
+        libisp = dlopen("/mnt/system/usr/lib/libisp.so", RTLD_LOCAL | RTLD_NOW);
     }
     if (!libisp)
     {
@@ -2441,7 +2509,6 @@ static int load_cvi_bin_library()
     bool whitelisted = is_device_whitelisted();
     if (!whitelisted)
     {
-        fprintf(stderr, "this device is not whitelisted for capture cvi\n");
         return -1;
     }
 
@@ -2449,6 +2516,10 @@ static int load_cvi_bin_library()
     if (!libcvi_bin_cvi_bin_isp)
     {
         libcvi_bin_cvi_bin_isp = dlopen("/mnt/system/lib/libcvi_bin_isp.so", RTLD_GLOBAL | RTLD_LAZY);
+    }
+    if (!libcvi_bin_cvi_bin_isp)
+    {
+        libcvi_bin_cvi_bin_isp = dlopen("/mnt/system/usr/lib/libcvi_bin_isp.so", RTLD_GLOBAL | RTLD_LAZY);
     }
     if (!libcvi_bin_cvi_bin_isp)
     {
@@ -2463,6 +2534,10 @@ static int load_cvi_bin_library()
     }
     if (!libcvi_bin_vpu)
     {
+        libcvi_bin_vpu = dlopen("/mnt/system/usr/lib/libvpu.so", RTLD_GLOBAL | RTLD_LAZY);
+    }
+    if (!libcvi_bin_vpu)
+    {
         fprintf(stderr, "%s\n", dlerror());
         goto OUT;
     }
@@ -2471,6 +2546,10 @@ static int load_cvi_bin_library()
     if (!libcvi_bin)
     {
         libcvi_bin = dlopen("/mnt/system/lib/libcvi_bin.so", RTLD_LOCAL | RTLD_NOW);
+    }
+    if (!libcvi_bin)
+    {
+        libcvi_bin = dlopen("/mnt/system/usr/lib/libcvi_bin.so", RTLD_LOCAL | RTLD_NOW);
     }
     if (!libcvi_bin)
     {
@@ -2568,6 +2647,36 @@ static const struct sns_ini_cfg* get_sns_ini_cfg()
 
         return &lpirvnano;
     }
+    if (device_model == 4)
+    {
+        // milkv duo s
+        static const struct sns_ini_cfg duos = {
+            3,  // bus_id
+            37, // sns_i2c_addr
+            0,  // mipi_dev
+            {2, 0, 1, -1, -1},  // lane_id
+            {0, 0, 0, 0, 0},    // pn_swap
+            false,  // mclk_en
+            0       // mclk
+        };
+
+        return &duos;
+    }
+    if (device_model == 5)
+    {
+        // licheerv nano new version
+        static const struct sns_ini_cfg lpirvnano = {
+            4,  // bus_id
+            29, // sns_i2c_addr
+            0,  // mipi_dev
+            {4, 3, 2, -1, -1},  // lane_id
+            {0, 0, 0, 0, 0},    // pn_swap
+            true,   // mclk_en
+            1       // mclk
+        };
+
+        return &lpirvnano;
+    }
 
     return NULL;
 }
@@ -2586,9 +2695,9 @@ static const struct sensor_cfg* get_sensor_cfg()
 {
     const int device_model = get_device_model();
 
-    if (device_model == 1 || device_model == 2)
+    if (device_model == 1 || device_model == 2 || device_model == 4)
     {
-        // milkv duo or milkv duo 256
+        // milkv duo or milkv duo 256 or milkv duos
         // gc2083 info
         static const struct sensor_cfg gc2083 = {
             1920,   // cap_width
@@ -2601,7 +2710,7 @@ static const struct sensor_cfg* get_sensor_cfg()
 
         return &gc2083;
     }
-    if (device_model == 3)
+    if (device_model == 3 || device_model == 5)
     {
         // licheerv nano
         // gc4653 info
@@ -3197,6 +3306,10 @@ int capture_cvi_impl::open(int width, int height, float fps)
             if (ret != CVI_SUCCESS)
             {
                 fprintf(stderr, "pfnSnsProbe failed %x\n", ret);
+                if (get_device_model() == 5)
+                {
+                    fprintf(stderr, "If you use an old version of licheerv-nano, run \"touch /boot/alpha\" and then \"reboot\"\n");
+                }
                 ret_val = -1;
                 goto OUT;
             }
@@ -3763,13 +3876,24 @@ int capture_cvi_impl::read_frame(unsigned char* bgrdata)
 
         for (int i = 0; i < h2; i++)
         {
-#if __riscv_vector
+#if __riscv_vector_071
             int j = 0;
             int n = w2;
             while (n > 0) {
                 size_t vl = vsetvl_e8m8(n);
                 vuint8m8_t bgr = vle8_v_u8m8(ptr + j, vl);
                 vse8_v_u8m8(bgrdata, bgr, vl);
+                bgrdata += vl;
+                j += vl;
+                n -= vl;
+            }
+#elif __riscv_vector
+            int j = 0;
+            int n = w2;
+            while (n > 0) {
+                size_t vl = __riscv_vsetvl_e8m8(n);
+                vuint8m8_t bgr = __riscv_vle8_v_u8m8(ptr + j, vl);
+                __riscv_vse8_v_u8m8(bgrdata, bgr, vl);
                 bgrdata += vl;
                 j += vl;
                 n -= vl;
@@ -4247,57 +4371,5 @@ int capture_cvi::close()
 {
     return d->close();
 }
-#else // defined __linux__
-bool capture_cvi::supported()
-{
-    return false;
-}
 
-capture_cvi::capture_cvi() : d(0)
-{
-}
-
-capture_cvi::~capture_cvi()
-{
-}
-
-int capture_cvi::open(int /*width*/, int /*height*/, float /*fps*/)
-{
-    return -1;
-}
-
-int capture_cvi::get_width() const
-{
-    return -1;
-}
-
-int capture_cvi::get_height() const
-{
-    return -1;
-}
-
-float capture_cvi::get_fps() const
-{
-    return 0.f;
-}
-
-int capture_cvi::start_streaming()
-{
-    return -1;
-}
-
-int capture_cvi::read_frame(unsigned char* /*bgrdata*/)
-{
-    return -1;
-}
-
-int capture_cvi::stop_streaming()
-{
-    return -1;
-}
-
-int capture_cvi::close()
-{
-    return -1;
-}
-#endif // defined __linux__
+} // namespace cv

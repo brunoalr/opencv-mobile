@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2023 nihui
+// Copyright (C) 2024 nihui
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,30 +14,34 @@
 // limitations under the License.
 //
 
-#ifndef JPEG_DECODER_CVI_H
-#define JPEG_DECODER_CVI_H
+#ifndef JPEG_ENCODER_AW_H
+#define JPEG_ENCODER_AW_H
+
+#include <vector>
 
 namespace cv {
 
-class jpeg_decoder_cvi_impl;
-class jpeg_decoder_cvi
+class jpeg_encoder_aw_impl;
+class jpeg_encoder_aw
 {
 public:
-    static bool supported(const unsigned char* jpgdata, int jpgsize);
+    static bool supported(int width, int height, int ch);
 
-    jpeg_decoder_cvi();
-    ~jpeg_decoder_cvi();
+    jpeg_encoder_aw();
+    ~jpeg_encoder_aw();
 
-    int init(const unsigned char* jpgdata, int jpgsize, int* width, int* height, int* ch);
+    int init(int width, int height, int ch, int quality);
 
-    int decode(const unsigned char* jpgdata, int jpgsize, unsigned char* outbgr) const;
+    int encode(const unsigned char* bgrdata, std::vector<unsigned char>& outdata) const;
+
+    int encode(const unsigned char* bgrdata, const char* outfilepath) const;
 
     int deinit();
 
 private:
-    jpeg_decoder_cvi_impl* const d;
+    jpeg_encoder_aw_impl* const d;
 };
 
 } // namespace cv
 
-#endif // JPEG_DECODER_CVI_H
+#endif // JPEG_ENCODER_AW_H

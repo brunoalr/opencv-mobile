@@ -23,6 +23,7 @@
 #include "exif.hpp"
 
 #define STB_IMAGE_IMPLEMENTATION
+#define STB_IMAGE_STATIC
 #if __ARM_NEON
 #define STBI_NEON
 #endif
@@ -37,11 +38,32 @@
 #include "stb_image.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
+#define STB_IMAGE_WRITE_STATIC
 #include "stb_image_write.h"
 
-#if defined __linux__
+#if CV_WITH_CVI
 #include "jpeg_decoder_cvi.h"
+#endif
+#if CV_WITH_AW
+#include "jpeg_decoder_aw.h"
+#include "jpeg_encoder_aw.h"
+#endif
+#if CV_WITH_RK
 #include "jpeg_encoder_rk_mpp.h"
+#endif
+#if CV_WITH_RPI
+#include "jpeg_encoder_v4l_rpi.h"
+#endif
+#if CV_WITH_CIX
+#include "jpeg_encoder_v4l_cix.h"
+#endif
+#if defined __linux__ && !__ANDROID__
+#include "display_fb.h"
+#endif
+
+#ifdef _WIN32
+#include "display_win32.h"
+#include <thread>
 #endif
 
 namespace cv {
@@ -150,10 +172,42 @@ Mat imread(const String& filename, int flags)
     const unsigned char* buf_data = (const unsigned char*)filedata.data();
     size_t buf_size = filedata.size();
 
-#if defined __linux__
     if (buf_size > 4 && buf_data[0] == 0xFF && buf_data[1] == 0xD8)
     {
         // jpg magic
+#if CV_WITH_AW
+        if (jpeg_decoder_aw::supported(buf_data, buf_size))
+        {
+            int w = 0;
+            int h = 0;
+            int c = desired_channels;
+
+            jpeg_decoder_aw d;
+            int ret = d.init(buf_data, buf_size, &w, &h, &c);
+            if (ret == 0 && (c == 1 || c == 3))
+            {
+                Mat img;
+                if (c == 1)
+                {
+                    img.create(h, w, CV_8UC1);
+                }
+                else // if (c == 3)
+                {
+                    img.create(h, w, CV_8UC3);
+                }
+
+                ret = d.decode(buf_data, buf_size, img.data);
+                if (ret == 0)
+                {
+                    d.deinit();
+                    return img;
+                }
+            }
+
+            // fallback to stbi_load_from_memory
+        }
+#endif
+#if CV_WITH_CVI
         if (jpeg_decoder_cvi::supported(buf_data, buf_size))
         {
             int w = 0;
@@ -184,8 +238,8 @@ Mat imread(const String& filename, int flags)
 
             // fallback to stbi_load_from_memory
         }
-    }
 #endif
+    }
 
     int w;
     int h;
@@ -286,9 +340,43 @@ bool imwrite(const String& filename, InputArray _img, const std::vector<int>& pa
         return false;
     }
 
-#if defined __linux__
     if (ext == ".jpg" || ext == ".jpeg" || ext == ".JPG" || ext == ".JPEG")
     {
+#if CV_WITH_AW
+        if (jpeg_encoder_aw::supported(img.cols, img.rows, c))
+        {
+            // anything to bgr
+            if (!img.isContinuous())
+            {
+                img = img.clone();
+            }
+
+            int quality = 95;
+            for (size_t i = 0; i < params.size(); i += 2)
+            {
+                if (params[i] == IMWRITE_JPEG_QUALITY)
+                {
+                    quality = params[i + 1];
+                    break;
+                }
+            }
+
+            jpeg_encoder_aw e;
+            int ret = e.init(img.cols, img.rows, c, quality);
+            if (ret == 0)
+            {
+                ret = e.encode(img.data, filename.c_str());
+                if (ret == 0)
+                {
+                    e.deinit();
+                    return true;
+                }
+            }
+
+            // fallback to stb_image_write
+        }
+#endif
+#if CV_WITH_RK
         if (jpeg_encoder_rk_mpp::supported(img.cols, img.rows, c))
         {
             // anything to bgr
@@ -321,8 +409,109 @@ bool imwrite(const String& filename, InputArray _img, const std::vector<int>& pa
 
             // fallback to stb_image_write
         }
-    }
 #endif
+#if CV_WITH_RPI
+        if (jpeg_encoder_v4l_rpi::supported(img.cols, img.rows, c))
+        {
+            // anything to bgr
+            if (!img.isContinuous())
+            {
+                img = img.clone();
+            }
+
+            int quality = 95;
+            for (size_t i = 0; i < params.size(); i += 2)
+            {
+                if (params[i] == IMWRITE_JPEG_QUALITY)
+                {
+                    quality = params[i + 1];
+                    break;
+                }
+            }
+
+            // cache jpeg_encoder_v4l_rpi context
+            static int old_w = 0;
+            static int old_h = 0;
+            static int old_ch = 0;
+            static int old_quality = 0;
+            static jpeg_encoder_v4l_rpi e;
+            if (img.cols == old_w && img.rows == old_h && c == old_ch && quality == old_quality)
+            {
+                int ret = e.encode(img.data, filename.c_str());
+                if (ret == 0)
+                    return true;
+            }
+            else
+            {
+                int ret = e.init(img.cols, img.rows, c, quality);
+                if (ret == 0)
+                {
+                    ret = e.encode(img.data, filename.c_str());
+                    if (ret == 0)
+                    {
+                        old_w = img.cols;
+                        old_h = img.rows;
+                        old_ch = c;
+                        old_quality = quality;
+                        return true;
+                    }
+                }
+            }
+            // fallback to stb_image_write
+        }
+#endif
+#if CV_WITH_CIX
+        if (jpeg_encoder_v4l_cix::supported(img.cols, img.rows, c))
+        {
+            // anything to bgr
+            if (!img.isContinuous())
+            {
+                img = img.clone();
+            }
+
+            int quality = 95;
+            for (size_t i = 0; i < params.size(); i += 2)
+            {
+                if (params[i] == IMWRITE_JPEG_QUALITY)
+                {
+                    quality = params[i + 1];
+                    break;
+                }
+            }
+
+            // cache jpeg_encoder_v4l_cix context
+            static int old_w = 0;
+            static int old_h = 0;
+            static int old_ch = 0;
+            static int old_quality = 0;
+            static jpeg_encoder_v4l_cix e;
+            if (img.cols == old_w && img.rows == old_h && c == old_ch && quality == old_quality)
+            {
+                int ret = e.encode(img.data, filename.c_str());
+                if (ret == 0)
+                    return true;
+            }
+            else
+            {
+                int ret = e.init(img.cols, img.rows, c, quality);
+                if (ret == 0)
+                {
+                    ret = e.encode(img.data, filename.c_str());
+                    if (ret == 0)
+                    {
+                        old_w = img.cols;
+                        old_h = img.rows;
+                        old_ch = c;
+                        old_quality = quality;
+                        return true;
+                    }
+                }
+            }
+
+            // fallback to stb_image_write
+        }
+#endif
+    }
 
     // bgr to rgb
     if (c == 3)
@@ -406,10 +595,42 @@ Mat imdecode(InputArray _buf, int flags)
     const unsigned char* buf_data = (const unsigned char*)buf.data;
     size_t buf_size = buf.cols * buf.rows * buf.elemSize();
 
-#if defined __linux__
     if (buf_size > 4 && buf_data[0] == 0xFF && buf_data[1] == 0xD8)
     {
         // jpg magic
+#if CV_WITH_AW
+        if (jpeg_decoder_aw::supported(buf_data, buf_size))
+        {
+            int w = 0;
+            int h = 0;
+            int c = desired_channels;
+
+            jpeg_decoder_aw d;
+            int ret = d.init(buf_data, buf_size, &w, &h, &c);
+            if (ret == 0 && (c == 1 || c == 3))
+            {
+                Mat img;
+                if (c == 1)
+                {
+                    img.create(h, w, CV_8UC1);
+                }
+                else // if (c == 3)
+                {
+                    img.create(h, w, CV_8UC3);
+                }
+
+                ret = d.decode(buf_data, buf_size, img.data);
+                if (ret == 0)
+                {
+                    d.deinit();
+                    return img;
+                }
+            }
+
+            // fallback to stbi_load_from_memory
+        }
+#endif
+#if CV_WITH_CVI
         if (jpeg_decoder_cvi::supported(buf_data, buf_size))
         {
             int w = 0;
@@ -440,8 +661,8 @@ Mat imdecode(InputArray _buf, int flags)
 
             // fallback to stbi_load_from_memory
         }
-    }
 #endif
+    }
 
     int w;
     int h;
@@ -540,9 +761,43 @@ bool imencode(const String& ext, InputArray _img, std::vector<uchar>& buf, const
         return false;
     }
 
-#if defined __linux__
     if (ext == ".jpg" || ext == ".jpeg" || ext == ".JPG" || ext == ".JPEG")
     {
+#if CV_WITH_AW
+        if (jpeg_encoder_aw::supported(img.cols, img.rows, c))
+        {
+            // anything to bgr
+            if (!img.isContinuous())
+            {
+                img = img.clone();
+            }
+
+            int quality = 95;
+            for (size_t i = 0; i < params.size(); i += 2)
+            {
+                if (params[i] == IMWRITE_JPEG_QUALITY)
+                {
+                    quality = params[i + 1];
+                    break;
+                }
+            }
+
+            jpeg_encoder_aw e;
+            int ret = e.init(img.cols, img.rows, c, quality);
+            if (ret == 0)
+            {
+                ret = e.encode(img.data, buf);
+                if (ret == 0)
+                {
+                    e.deinit();
+                    return true;
+                }
+            }
+
+            // fallback to stb_image_write
+        }
+#endif
+#if CV_WITH_RK
         if (jpeg_encoder_rk_mpp::supported(img.cols, img.rows, c))
         {
             // anything to bgr
@@ -575,8 +830,75 @@ bool imencode(const String& ext, InputArray _img, std::vector<uchar>& buf, const
 
             // fallback to stb_image_write
         }
-    }
 #endif
+#if CV_WITH_RPI
+        if (jpeg_encoder_v4l_rpi::supported(img.cols, img.rows, c))
+        {
+            // anything to bgr
+            if (!img.isContinuous())
+            {
+                img = img.clone();
+            }
+
+            int quality = 95;
+            for (size_t i = 0; i < params.size(); i += 2)
+            {
+                if (params[i] == IMWRITE_JPEG_QUALITY)
+                {
+                    quality = params[i + 1];
+                    break;
+                }
+            }
+
+            jpeg_encoder_v4l_rpi e;
+            int ret = e.init(img.cols, img.rows, c, quality);
+            if (ret == 0)
+            {
+                ret = e.encode(img.data, buf);
+                if (ret == 0)
+                {
+                    e.deinit();
+                    return true;
+                }
+            }
+            // fallback to stb_image_write
+        }
+#endif
+#if CV_WITH_CIX
+        if (jpeg_encoder_v4l_cix::supported(img.cols, img.rows, c))
+        {
+            // anything to bgr
+            if (!img.isContinuous())
+            {
+                img = img.clone();
+            }
+
+            int quality = 95;
+            for (size_t i = 0; i < params.size(); i += 2)
+            {
+                if (params[i] == IMWRITE_JPEG_QUALITY)
+                {
+                    quality = params[i + 1];
+                    break;
+                }
+            }
+
+            jpeg_encoder_v4l_cix e;
+            int ret = e.init(img.cols, img.rows, c, quality);
+            if (ret == 0)
+            {
+                ret = e.encode(img.data, buf);
+                if (ret == 0)
+                {
+                    e.deinit();
+                    return true;
+                }
+            }
+
+            // fallback to stb_image_write
+        }
+#endif
+    }
 
     // bgr to rgb
     if (c == 3)
@@ -632,15 +954,91 @@ bool imencode(const String& ext, InputArray _img, std::vector<uchar>& buf, const
 
 void imshow(const String& winname, InputArray mat)
 {
-    fprintf(stderr, "imshow save image to %s.png", winname.c_str());
-    imwrite(winname + ".png", mat);
+#if _WIN32
+    std::vector<uchar> buf;
+    bool result = cv::imencode(".bmp", mat, buf);
+    if (result) {
+        BitmapWindow::show(winname.c_str(), buf.data());
+        return;
+    }
+    return ;
+#elif __linux__ && !__ANDROID__
+    if (winname == "fb")
+    {
+        static display_fb dpy;
+        if (dpy.open() == 0)
+        {
+            const int dpy_w = dpy.get_width();
+            const int dpy_h = dpy.get_height();
+
+            Mat img = mat.getMat();
+
+            // bgra to bgr
+            if (img.type() == CV_8UC4)
+            {
+                Mat img2;
+                cvtColor(img, img2, COLOR_BGRA2BGR);
+                img = img2;
+            }
+
+            // resize and add border
+            const int img_w = img.cols;
+            const int img_h = img.rows;
+            if (img_w != dpy_w || img_h != dpy_h)
+            {
+                Mat img2;
+                if (img.type() == CV_8UC1)
+                {
+                    img2.create(dpy_h, dpy_w, CV_8UC1);
+                    img2 = cv::Scalar(0);
+                }
+                if (img.type() == CV_8UC3)
+                {
+                    img2.create(dpy_h, dpy_w, CV_8UC3);
+                    img2 = cv::Scalar(0, 0, 0);
+                }
+
+                if (img_w * dpy_h > dpy_w * img_h)
+                {
+                    const int img2_h = dpy_w * img_h / img_w;
+                    cv::resize(img, img2(cv::Rect(0, (dpy_h - img2_h) / 2, dpy_w, img2_h)), cv::Size(dpy_w, img2_h));
+                }
+                else
+                {
+                    const int img2_w = dpy_h * img_w / img_h;
+                    cv::resize(img, img2(cv::Rect((dpy_w - img2_w) / 2, 0, img2_w, dpy_h)), cv::Size(img2_w, dpy_h));
+                }
+
+                img = img2;
+            }
+
+            if (img.type() == CV_8UC1)
+            {
+                dpy.show_gray(img.data, img.cols, img.rows);
+            }
+            if (img.type() == CV_8UC3)
+            {
+                dpy.show_bgr(img.data, img.cols, img.rows);
+            }
+        }
+    }
+    else
+#endif
+    {
+        fprintf(stderr, "imshow save image to %s.png\n", winname.c_str());
+        imwrite(winname + ".png", mat);
+    }
 }
 
 int waitKey(int delay)
 {
+#ifdef _WIN32
+    return BitmapWindow::waitKey(delay);
+#else
     (void)delay;
-    fprintf(stderr, "waitKey stub");
+    fprintf(stderr, "waitKey stub\n");
     return -1;
+#endif
 }
 
 } // namespace cv

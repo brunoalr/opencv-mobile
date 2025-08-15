@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2023 nihui
+// Copyright (C) 2024 nihui
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,30 +14,40 @@
 // limitations under the License.
 //
 
-#ifndef JPEG_DECODER_CVI_H
-#define JPEG_DECODER_CVI_H
+#ifndef CAPTURE_V4L2_H
+#define CAPTURE_V4L2_H
+
+#include <vector>
 
 namespace cv {
 
-class jpeg_decoder_cvi_impl;
-class jpeg_decoder_cvi
+class capture_v4l2_impl;
+class capture_v4l2
 {
 public:
-    static bool supported(const unsigned char* jpgdata, int jpgsize);
+    static bool supported();
 
-    jpeg_decoder_cvi();
-    ~jpeg_decoder_cvi();
+    capture_v4l2();
+    ~capture_v4l2();
 
-    int init(const unsigned char* jpgdata, int jpgsize, int* width, int* height, int* ch);
+    int open(int index, int width = 640, int height = 480, float fps = 30);
 
-    int decode(const unsigned char* jpgdata, int jpgsize, unsigned char* outbgr) const;
+    int get_width() const;
+    int get_height() const;
+    float get_fps() const;
 
-    int deinit();
+    int start_streaming();
+
+    int read_frame(unsigned char* bgrdata);
+
+    int stop_streaming();
+
+    int close();
 
 private:
-    jpeg_decoder_cvi_impl* const d;
+    capture_v4l2_impl* const d;
 };
 
 } // namespace cv
 
-#endif // JPEG_DECODER_CVI_H
+#endif // CAPTURE_V4L2_H

@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2023 nihui
+// Copyright (C) 2024 nihui
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,30 +14,36 @@
 // limitations under the License.
 //
 
-#ifndef JPEG_DECODER_CVI_H
-#define JPEG_DECODER_CVI_H
+#ifndef DISPLAY_FB_H
+#define DISPLAY_FB_H
+
+#include <vector>
 
 namespace cv {
 
-class jpeg_decoder_cvi_impl;
-class jpeg_decoder_cvi
+class display_fb_impl;
+class display_fb
 {
 public:
-    static bool supported(const unsigned char* jpgdata, int jpgsize);
+    static bool supported();
 
-    jpeg_decoder_cvi();
-    ~jpeg_decoder_cvi();
+    display_fb();
+    ~display_fb();
 
-    int init(const unsigned char* jpgdata, int jpgsize, int* width, int* height, int* ch);
+    int open();
 
-    int decode(const unsigned char* jpgdata, int jpgsize, unsigned char* outbgr) const;
+    int get_width() const;
+    int get_height() const;
 
-    int deinit();
+    int show_bgr(const unsigned char* bgrdata, int width, int height);
+    int show_gray(const unsigned char* graydata, int width, int height);
+
+    int close();
 
 private:
-    jpeg_decoder_cvi_impl* const d;
+    display_fb_impl* const d;
 };
 
 } // namespace cv
 
-#endif // JPEG_DECODER_CVI_H
+#endif // DISPLAY_FB_H

@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2023 nihui
+// Copyright (C) 2024 nihui
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,30 +14,32 @@
 // limitations under the License.
 //
 
-#ifndef JPEG_DECODER_CVI_H
-#define JPEG_DECODER_CVI_H
+#ifndef WRITER_HTTP_H
+#define WRITER_HTTP_H
+
+#include <vector>
 
 namespace cv {
 
-class jpeg_decoder_cvi_impl;
-class jpeg_decoder_cvi
+class writer_http_impl;
+class writer_http
 {
 public:
-    static bool supported(const unsigned char* jpgdata, int jpgsize);
+    static bool supported();
 
-    jpeg_decoder_cvi();
-    ~jpeg_decoder_cvi();
+    writer_http();
+    ~writer_http();
 
-    int init(const unsigned char* jpgdata, int jpgsize, int* width, int* height, int* ch);
+    int open(int port);
 
-    int decode(const unsigned char* jpgdata, int jpgsize, unsigned char* outbgr) const;
+    void write_jpgbuf(const std::vector<unsigned char>& jpgbuf);
 
-    int deinit();
+    void close();
 
 private:
-    jpeg_decoder_cvi_impl* const d;
+    writer_http_impl* const d;
 };
 
 } // namespace cv
 
-#endif // JPEG_DECODER_CVI_H
+#endif // WRITER_HTTP_H

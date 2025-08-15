@@ -16,7 +16,6 @@
 
 #include "jpeg_decoder_cvi.h"
 
-#if defined __linux__
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
@@ -37,10 +36,13 @@
 
 #include "exif.hpp"
 
+namespace cv {
+
 // 0 = unknown
 // 1 = milkv-duo
 // 2 = milkv-duo256m
 // 3 = licheerv-nano
+// 4 = milkv-duos
 static int get_device_model()
 {
     static int device_model = -1;
@@ -57,12 +59,12 @@ static int get_device_model()
         fgets(buf, 1024, fp);
         fclose(fp);
 
-        if (strncmp(buf, "Cvitek. CV180X ASIC. C906.", 36) == 0)
+        if (strncmp(buf, "Cvitek. CV180X ASIC. C906.", 36) == 0 || strncmp(buf, "Milk-V Duo", 10) == 0)
         {
             // milkv duo
             device_model = 1;
         }
-        if (strncmp(buf, "Cvitek. CV181X ASIC. C906.", 36) == 0)
+        if (strncmp(buf, "Cvitek. CV181X ASIC. C906.", 36) == 0 || strncmp(buf, "Milk-V Duo256M", 14) == 0)
         {
             // milkv duo 256
             device_model = 2;
@@ -72,6 +74,16 @@ static int get_device_model()
             // licheerv nano
             device_model = 3;
         }
+        if (strncmp(buf, "Milk-V DuoS", 11) == 0)
+        {
+            // milkv duo s
+            device_model = 4;
+        }
+    }
+
+    if (device_model > 0)
+    {
+        fprintf(stderr, "opencv-mobile HW JPG decoder with cvi\n");
     }
 
     return device_model;
@@ -79,25 +91,7 @@ static int get_device_model()
 
 static bool is_device_whitelisted()
 {
-    const int device_model = get_device_model();
-
-    if (device_model == 1)
-    {
-        // milkv duo
-        return true;
-    }
-    if (device_model == 2)
-    {
-        // milkv duo 256
-        return true;
-    }
-    if (device_model == 3)
-    {
-        // licheerv nano
-        return true;
-    }
-
-    return false;
+    return get_device_model() > 0;
 }
 
 extern "C"
@@ -235,7 +229,6 @@ static int load_sys_library()
     bool whitelisted = is_device_whitelisted();
     if (!whitelisted)
     {
-        fprintf(stderr, "this device is not whitelisted for jpeg decoder cvi\n");
         return -1;
     }
 
@@ -250,6 +243,10 @@ static int load_sys_library()
     if (!libsys)
     {
         libsys = dlopen("/mnt/system/lib/libsys.so", RTLD_LOCAL | RTLD_NOW);
+    }
+    if (!libsys)
+    {
+        libsys = dlopen("/mnt/system/usr/lib/libsys.so", RTLD_LOCAL | RTLD_NOW);
     }
     if (!libsys)
     {
@@ -644,7 +641,6 @@ static int load_vdec_library()
     bool whitelisted = is_device_whitelisted();
     if (!whitelisted)
     {
-        fprintf(stderr, "this device is not whitelisted for jpeg decoder cvi\n");
         return -1;
     }
 
@@ -652,6 +648,10 @@ static int load_vdec_library()
     if (!libvdec_sys)
     {
         libvdec_sys = dlopen("/mnt/system/lib/libsys.so", RTLD_GLOBAL | RTLD_LAZY);
+    }
+    if (!libvdec_sys)
+    {
+        libvdec_sys = dlopen("/mnt/system/usr/lib/libsys.so", RTLD_GLOBAL | RTLD_LAZY);
     }
     if (!libvdec_sys)
     {
@@ -663,6 +663,10 @@ static int load_vdec_library()
     if (!libvdec)
     {
         libvdec = dlopen("/mnt/system/lib/libvdec.so", RTLD_LOCAL | RTLD_NOW);
+    }
+    if (!libvdec)
+    {
+        libvdec = dlopen("/mnt/system/usr/lib/libvdec.so", RTLD_LOCAL | RTLD_NOW);
     }
     if (!libvdec)
     {
@@ -912,7 +916,6 @@ static int load_vpu_library()
     bool whitelisted = is_device_whitelisted();
     if (!whitelisted)
     {
-        fprintf(stderr, "this device is not whitelisted for jpeg decoder cvi\n");
         return -1;
     }
 
@@ -920,6 +923,10 @@ static int load_vpu_library()
     if (!libvpu_awb)
     {
         libvpu_awb = dlopen("/mnt/system/lib/libawb.so", RTLD_GLOBAL | RTLD_LAZY);
+    }
+    if (!libvpu_awb)
+    {
+        libvpu_awb = dlopen("/mnt/system/usr/lib/libawb.so", RTLD_GLOBAL | RTLD_LAZY);
     }
     if (!libvpu_awb)
     {
@@ -934,6 +941,10 @@ static int load_vpu_library()
     }
     if (!libvpu_ae)
     {
+        libvpu_ae = dlopen("/mnt/system/usr/lib/libae.so", RTLD_GLOBAL | RTLD_LAZY);
+    }
+    if (!libvpu_ae)
+    {
         fprintf(stderr, "%s\n", dlerror());
         goto OUT;
     }
@@ -942,6 +953,10 @@ static int load_vpu_library()
     if (!libvpu_isp_algo)
     {
         libvpu_isp_algo = dlopen("/mnt/system/lib/libisp_algo.so", RTLD_GLOBAL | RTLD_LAZY);
+    }
+    if (!libvpu_isp_algo)
+    {
+        libvpu_isp_algo = dlopen("/mnt/system/usr/lib/libisp_algo.so", RTLD_GLOBAL | RTLD_LAZY);
     }
     if (!libvpu_isp_algo)
     {
@@ -956,6 +971,10 @@ static int load_vpu_library()
     }
     if (!libvpu_isp)
     {
+        libvpu_isp = dlopen("/mnt/system/usr/lib/libisp.so", RTLD_GLOBAL | RTLD_LAZY);
+    }
+    if (!libvpu_isp)
+    {
         fprintf(stderr, "%s\n", dlerror());
         goto OUT;
     }
@@ -964,6 +983,10 @@ static int load_vpu_library()
     if (!libvpu_cvi_bin_isp)
     {
         libvpu_cvi_bin_isp = dlopen("/mnt/system/lib/libcvi_bin_isp.so", RTLD_GLOBAL | RTLD_LAZY);
+    }
+    if (!libvpu_cvi_bin_isp)
+    {
+        libvpu_cvi_bin_isp = dlopen("/mnt/system/usr/lib/libcvi_bin_isp.so", RTLD_GLOBAL | RTLD_LAZY);
     }
     if (!libvpu_cvi_bin_isp)
     {
@@ -978,6 +1001,10 @@ static int load_vpu_library()
     }
     if (!libvpu_cvi_bin)
     {
+        libvpu_cvi_bin = dlopen("/mnt/system/usr/lib/libcvi_bin.so", RTLD_GLOBAL | RTLD_LAZY);
+    }
+    if (!libvpu_cvi_bin)
+    {
         fprintf(stderr, "%s\n", dlerror());
         goto OUT;
     }
@@ -986,6 +1013,10 @@ static int load_vpu_library()
     if (!libvpu)
     {
         libvpu = dlopen("/mnt/system/lib/libvpu.so", RTLD_LOCAL | RTLD_NOW);
+    }
+    if (!libvpu)
+    {
+        libvpu = dlopen("/mnt/system/usr/lib/libvpu.so", RTLD_LOCAL | RTLD_NOW);
     }
     if (!libvpu)
     {
@@ -2197,13 +2228,24 @@ int jpeg_decoder_cvi_impl::decode(const unsigned char* jpgdata, int jpgsize, uns
 
         for (int i = 0; i < h2; i++)
         {
-#if __riscv_vector
+#if __riscv_vector_071
             int j = 0;
             int n = w2;
             while (n > 0) {
                 size_t vl = vsetvl_e8m8(n);
                 vuint8m8_t bgr = vle8_v_u8m8(ptr + j, vl);
                 vse8_v_u8m8(outbgr, bgr, vl);
+                outbgr += vl;
+                j += vl;
+                n -= vl;
+            }
+#elif __riscv_vector
+            int j = 0;
+            int n = w2;
+            while (n > 0) {
+                size_t vl = __riscv_vsetvl_e8m8(n);
+                vuint8m8_t bgr = __riscv_vle8_v_u8m8(ptr + j, vl);
+                __riscv_vse8_v_u8m8(outbgr, bgr, vl);
                 outbgr += vl;
                 j += vl;
                 n -= vl;
@@ -2242,7 +2284,7 @@ int jpeg_decoder_cvi_impl::decode(const unsigned char* jpgdata, int jpgsize, uns
 
         for (int i = 0; i < height; i++)
         {
-#if __riscv_vector
+#if __riscv_vector_071
             int j = 0;
             int n = width;
             while (n > 0) {
@@ -2250,6 +2292,18 @@ int jpeg_decoder_cvi_impl::decode(const unsigned char* jpgdata, int jpgsize, uns
                 vuint8m2_t g = vle8_v_u8m2(ptr + j, vl);
                 vuint8m2x3_t o = vcreate_u8m2x3(g, g, g);
                 vsseg3e8_v_u8m2x3(outbgr, o, vl);
+                outbgr += vl * 3;
+                j += vl;
+                n -= vl;
+            }
+#elif __riscv_vector
+            int j = 0;
+            int n = width;
+            while (n > 0) {
+                size_t vl = __riscv_vsetvl_e8m2(n);
+                vuint8m2_t g = __riscv_vle8_v_u8m2(ptr + j, vl);
+                vuint8m2x3_t o = __riscv_vcreate_v_u8m2x3(g, g, g);
+                __riscv_vsseg3e8_v_u8m2x3(outbgr, o, vl);
                 outbgr += vl * 3;
                 j += vl;
                 n -= vl;
@@ -2573,34 +2627,4 @@ int jpeg_decoder_cvi::deinit()
     return d->deinit();
 }
 
-#else // defined __linux__
-
-bool jpeg_decoder_cvi::supported(const unsigned char* /*jpgdata*/, int /*jpgsize*/)
-{
-    return false;
-}
-
-jpeg_decoder_cvi::jpeg_decoder_cvi() : d(0)
-{
-}
-
-jpeg_decoder_cvi::~jpeg_decoder_cvi()
-{
-}
-
-int jpeg_decoder_cvi::init(const unsigned char* /*jpgdata*/, int /*jpgsize*/, int* /*width*/, int* /*height*/, int* /*ch*/)
-{
-    return -1;
-}
-
-int jpeg_decoder_cvi::decode(const unsigned char* /*jpgdata*/, int /*jpgsize*/, unsigned char* /*outbgr*/) const
-{
-    return -1;
-}
-
-int jpeg_decoder_cvi::deinit()
-{
-    return -1;
-}
-
-#endif // defined __linux__
+} // namespace cv

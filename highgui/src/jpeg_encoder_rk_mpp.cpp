@@ -16,7 +16,6 @@
 
 #include "jpeg_encoder_rk_mpp.h"
 
-#if defined __linux__
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
@@ -34,6 +33,46 @@
 #include <sys/mman.h>
 #include <sys/types.h>
 #include <unistd.h>
+
+namespace cv {
+
+// 0 = unknown
+// 1 = luckfox-pico
+static int get_device_model()
+{
+    static int device_model = -1;
+
+    if (device_model >= 0)
+        return device_model;
+
+    device_model = 0;
+
+    FILE* fp = fopen("/proc/device-tree/model", "rb");
+    if (fp)
+    {
+        char buf[1024];
+        fgets(buf, 1024, fp);
+        fclose(fp);
+
+        if (strncmp(buf, "Luckfox Pico", 12) == 0)
+        {
+            // luckfox pico family and plus pro max mini variants
+            device_model = 1;
+        }
+    }
+
+    if (device_model > 0)
+    {
+        fprintf(stderr, "opencv-mobile HW JPG encoder with rk mpp\n");
+    }
+
+    return device_model;
+}
+
+static bool is_device_whitelisted()
+{
+    return get_device_model() > 0;
+}
 
 extern "C" {
 
@@ -195,26 +234,9 @@ static int load_rkmpp_library()
         return 0;
 
     // check device whitelist
-    bool whitelisted = false;
-    {
-        FILE* fp = fopen("/proc/device-tree/model", "rb");
-        if (!fp)
-            return -1;
-
-        char buf[1024];
-        fgets(buf, 1024, fp);
-        fclose(fp);
-
-        if (strncmp(buf, "Luckfox Pico", 12) == 0)
-        {
-            // luckfox pico family and plus pro max mini variants
-            whitelisted = true;
-        }
-    }
-
+    bool whitelisted = is_device_whitelisted();
     if (!whitelisted)
     {
-        fprintf(stderr, "this device is not whitelisted for jpeg encoder rkmpp\n");
         return -1;
     }
 
@@ -1070,39 +1092,4 @@ int jpeg_encoder_rk_mpp::deinit()
     return d->deinit();
 }
 
-#else // defined __linux__
-
-bool jpeg_encoder_rk_mpp::supported(int /*width*/, int /*height*/, int /*ch*/)
-{
-    return false;
-}
-
-jpeg_encoder_rk_mpp::jpeg_encoder_rk_mpp() : d(0)
-{
-}
-
-jpeg_encoder_rk_mpp::~jpeg_encoder_rk_mpp()
-{
-}
-
-int jpeg_encoder_rk_mpp::init(int /*width*/, int /*height*/, int /*ch*/, int /*quality*/)
-{
-    return -1;
-}
-
-int jpeg_encoder_rk_mpp::encode(const unsigned char* /*bgrdata*/, std::vector<unsigned char>& /*outdata*/) const
-{
-    return -1;
-}
-
-int jpeg_encoder_rk_mpp::encode(const unsigned char* /*bgrdata*/, const char* /*outfilepath*/) const
-{
-    return -1;
-}
-
-int jpeg_encoder_rk_mpp::deinit()
-{
-    return -1;
-}
-
-#endif // defined __linux__
+} // namespace cv

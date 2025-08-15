@@ -16,7 +16,6 @@
 
 #include "capture_v4l2_aw_isp.h"
 
-#if defined __linux__
 #include <errno.h>
 #include <stdio.h>
 #include <stdint.h>
@@ -37,6 +36,8 @@
 #include <arm_neon.h>
 #endif // __ARM_NEON
 
+
+namespace cv {
 
 // 0 = unknown
 // 1 = tinyvision
@@ -63,20 +64,17 @@ static int get_device_model()
         }
     }
 
+    if (device_model > 0)
+    {
+        fprintf(stderr, "opencv-mobile MIPI CSI camera with v4l2 awispapi\n");
+    }
+
     return device_model;
 }
 
 static bool is_device_whitelisted()
 {
-    const int device_model = get_device_model();
-
-    if (device_model == 1)
-    {
-        // tinyvision
-        return true;
-    }
-
-    return false;
+    return get_device_model() > 0;
 }
 
 extern "C" {
@@ -413,7 +411,6 @@ static int load_awispapi_library()
     bool whitelisted = is_device_whitelisted();
     if (!whitelisted)
     {
-        fprintf(stderr, "this device is not whitelisted for capture v4l2 awispapi\n");
         return -1;
     }
 
@@ -1635,59 +1632,4 @@ int capture_v4l2_aw_isp::close()
     return d->close();
 }
 
-#else // defined __linux__
-
-bool capture_v4l2_aw_isp::supported()
-{
-    return false;
-}
-
-capture_v4l2_aw_isp::capture_v4l2_aw_isp() : d(0)
-{
-}
-
-capture_v4l2_aw_isp::~capture_v4l2_aw_isp()
-{
-}
-
-int capture_v4l2_aw_isp::open(int width, int height, float fps)
-{
-    return -1;
-}
-
-int capture_v4l2_aw_isp::get_width() const
-{
-    return -1;
-}
-
-int capture_v4l2_aw_isp::get_height() const
-{
-    return -1;
-}
-
-float capture_v4l2_aw_isp::get_fps() const
-{
-    return 0.f;
-}
-
-int capture_v4l2_aw_isp::start_streaming()
-{
-    return -1;
-}
-
-int capture_v4l2_aw_isp::read_frame(unsigned char* bgrdata)
-{
-    return -1;
-}
-
-int capture_v4l2_aw_isp::stop_streaming()
-{
-    return -1;
-}
-
-int capture_v4l2_aw_isp::close()
-{
-    return -1;
-}
-
-#endif // defined __linux__
+} // namespace cv
